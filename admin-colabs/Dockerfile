@@ -2,40 +2,41 @@ FROM php:8.4-apache
 
 WORKDIR /var/www/html
 
-# Dependencias del sistema + extensiones PHP + rewrite
+# Dependencias del sistema + extensiones
 RUN apt-get update && apt-get install -y \
     git unzip libpq-dev libzip-dev \
   && docker-php-ext-install pdo pdo_mysql pdo_pgsql zip \
-  && a2enmod rewrite
+  && a2enmod rewrite \
+  && rm -rf /var/lib/apt/lists/*
 
 # Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Copiar proyecto
+# Copiar proyecto (desde admin-colabs)
 COPY . /var/www/html
 
-# ✅ Apache debe servir /public (Laravel)
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
-
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
-  && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf \
-  && printf "\n<Directory /var/www/html/public>\n\
-    AllowOverride All\n\
-    Require all granted\n\
-</Directory>\n" >> /etc/apache2/apache2.conf
-
-# Permisos (Laravel)
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+# Permisos Laravel (si existen)
+RUN mkdir -p /var/www/html/storage /var/www/html/bootstrap/cache \
+ && chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
 # Instalar dependencias PHP
 RUN composer install --no-dev --optimize-autoloader
 
-# Render usa PORT
+# Render usa PORT (lo setea Render), pero dejamos default 10000
 ENV PORT=10000
 EXPOSE 10000
 
-# Apache escuchando el PORT
+# Apache escuchando el PORT 10000
 RUN sed -i 's/Listen 80/Listen 10000/g' /etc/apache2/ports.conf \
  && sed -i 's/:80/:10000/g' /etc/apache2/sites-available/000-default.conf
 
-CMD ["apache2-foreground"]
+# ✅ Para que Laravel routes funcionen bien
+# (si tu proyecto usa /public como document root)
+RUN sed -i 's#DocumentRoot /var/www/html#DocumentRoot /var/www/html/public#g' /etc/apache2/sites-available/000-default.conf \
+ && sed -i 's#<Directory /var/www/>#<Directory /var/www/html/public/>#g' /etc/apache2/apache2.conf
+
+# Start script (migrate + opcional seed)
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"]
