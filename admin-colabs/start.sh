@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
 set -e
 
-echo "==> App starting..."
-echo "==> PHP: $(php -v | head -n 1)"
+echo "==> Booting Laravel on Render..."
 
-# Si Render te pasa PORT, Apache ya está en 10000 en config.
-# (Render enruta al contenedor igual)
+# 1) Render inyecta $PORT. Si no existe, usa 10000
+PORT="${PORT:-10000}"
+echo "==> Using PORT=$PORT"
 
-# 🔥 Migraciones (siempre)
+# 2) Ajustar Apache al puerto correcto
+sed -i "s/Listen .*/Listen ${PORT}/" /etc/apache2/ports.conf
+sed -i "s/:80/:${PORT}/g" /etc/apache2/sites-available/000-default.conf
+
+# 3) Cache/optimizaciones (opcionales pero útiles en prod)
+php artisan config:clear || true
+php artisan route:clear || true
+php artisan cache:clear || true
+
+# 4) Migraciones
 echo "==> Running migrations..."
-php artisan migrate --force || true
+php artisan migrate --force
 
-# 🌱 Seeders solo si RUN_SEED=true
+# 5) Seed SOLO si RUN_SEED=true
 if [ "${RUN_SEED}" = "true" ]; then
   echo "==> Running seeders..."
-  php artisan db:seed --force || true
+  php artisan db:seed --force
 else
-  echo "==> Seed skipped (set RUN_SEED=true to run)"
+  echo "==> RUN_SEED not true, skipping seed."
 fi
 
-# Cache opcional (no obligatorio)
-php artisan config:cache || true
-php artisan route:cache || true
-
-echo "==> Launching Apache..."
+echo "==> Starting Apache..."
 exec apache2-foreground
