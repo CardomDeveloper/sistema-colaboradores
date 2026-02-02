@@ -1,19 +1,31 @@
-FROM php:8.2-apache
+FROM php:8.4-apache
 
 WORKDIR /var/www/html
 
+# Dependencias del sistema
 RUN apt-get update && apt-get install -y \
-    libzip-dev zip unzip git curl \
-    && docker-php-ext-install pdo pdo_mysql
+    git unzip libpq-dev libzip-dev \
+  && docker-php-ext-install pdo pdo_mysql pdo_pgsql zip \
+  && a2enmod rewrite
 
-COPY . .
+# Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Copiar proyecto
+COPY . /var/www/html
 
-RUN composer install --no-dev --optimize-autoloader
-
+# Permisos
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Instalar dependencias PHP
+RUN composer install --no-dev --optimize-autoloader
+
+# Render usa PORT
+ENV PORT=10000
 EXPOSE 10000
 
-CMD php artisan serve --host=0.0.0.0 --port=10000
+# Apache escuchando el PORT
+RUN sed -i 's/Listen 80/Listen 10000/g' /etc/apache2/ports.conf \
+ && sed -i 's/:80/:10000/g' /etc/apache2/sites-available/000-default.conf
+
+CMD ["apache2-foreground"]
